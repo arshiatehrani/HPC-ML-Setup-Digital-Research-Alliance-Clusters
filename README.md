@@ -14,10 +14,11 @@
 - [2. JupyterHub Kernel Setup](#2️⃣-make-it-usable-in-jupyterhub)
 - [3. Interactive Jobs (salloc)](#3️⃣-use-the-environment-in-interactive-jobs)
 - [4. Batch Jobs (sbatch)](#4️⃣-use-the-environment-in-batch-jobs-best-practice)
-- [5. Directory Structure](#5️⃣-best-directory-structure-for-research)
-- [6. Useful Commands](#6️⃣-useful-commands)
-- [7. Pre-built Wheels Trick](#️-one-extremely-useful-trick-for-alliance-clusters)
-- [8. Typical Workflow](#-your-typical-workflow)
+- [5. Monitoring Job Output & Training Logs](#5️⃣-monitoring-job-output--training-logs)
+- [6. Directory Structure](#6️⃣-best-directory-structure-for-research)
+- [7. Useful Commands](#7️⃣-useful-commands)
+- [8. Pre-built Wheels Trick](#️-one-extremely-useful-trick-for-alliance-clusters)
+- [9. Typical Workflow](#-your-typical-workflow)
 - [Requirements Template](#-requirements-template)
 - [Advanced Tips](#-advanced-tips)
 
@@ -128,7 +129,7 @@ module load opencv/4.13.0
 module load arrow/23.0.1
 ```
 
-> ⚠️ **You do not need to load all of these every time.** Load only what your project needs. Many lower-level modules (like `gcccore`, `flexiblascore`, `hwloc`, `ucx`, `libfabric`, `pmix`, `ucc`) are auto-loaded as dependencies when you load higher-level modules like `openmpi` or `scipy-stack`. Use the stacks below as your starting point.
+> ⚠️ **You do not need to load all of these every time.** Load only what your project needs. Many lower-level modules (`gcccore`, `flexiblascore`, `hwloc`, `ucx`, `libfabric`, `pmix`, `ucc`) are auto-loaded as dependencies when you load higher-level modules like `openmpi` or `scipy-stack`. Use the stacks below as your starting point.
 
 ---
 
@@ -353,12 +354,14 @@ nvidia-smi
 # ── Run Experiment ─────────────────────────────────────────────────
 cd ~/projects/my_project
 
-python train.py \
+python -u train.py \
     --epochs 50 \
     --batch_size 64 \
     --lr 1e-4 \
-    --output_dir ~/scratch/checkpoints/run_$(date +%Y%m%d_%H%M%S)
+    --output_dir $SCRATCH/checkpoints/run_$(date +%Y%m%d_%H%M%S)
 ```
+
+> 💡 Note the `-u` flag on `python -u train.py` — this disables output buffering so your `print()` statements appear in the log file immediately as they execute rather than waiting for the buffer to flush.
 
 Create the logs directory first:
 
@@ -382,7 +385,158 @@ scontrol show job JOBID   # full job details
 
 ---
 
-## 5️⃣ Best Directory Structure for Research
+## 5️⃣ Monitoring Job Output & Training Logs
+
+On Slurm clusters, all `print()` statements, training logs, errors, and warnings go to the **job output file**. You can monitor them live while the job runs or inspect them after it finishes.
+
+---
+
+### Default Output File
+
+When you submit with `sbatch`, Slurm automatically writes **stdout and stderr** to:
+
+```
+slurm-<JOBID>.out
+```
+
+This file contains everything your script prints — training metrics, errors, warnings, and any other output. Unless you specify custom filenames in your job script, this is where everything lands.
+
+---
+
+### Watch Training Live (Most Useful) ⭐
+
+Stream the output in real time while the job is running:
+
+```bash
+tail -f slurm-<JOBID>.out
+```
+
+You will see output update live as the job writes it:
+
+```
+Epoch 1/50 — loss: 0.3241 — acc: 0.8712
+Epoch 2/50 — loss: 0.2893 — acc: 0.8904
+Epoch 3/50 — loss: 0.2571 — acc: 0.9031
+```
+
+Stop the stream with `CTRL + C`. The job continues running — you are only detaching from the live view.
+
+To follow all output files matching a pattern:
+
+```bash
+tail -f slurm-*.out
+```
+
+---
+
+### Read the Output File After the Job Ends
+
+```bash
+# Scrollable view
+less slurm-<JOBID>.out
+
+# Print entire file to terminal
+cat slurm-<JOBID>.out
+
+# Show last 50 lines
+tail -n 50 slurm-<JOBID>.out
+```
+
+---
+
+### Find the Job ID If You Don't Have It
+
+```bash
+squeue --me          # jobs currently running or pending
+ls slurm-*.out       # list all output files in current directory
+```
+
+---
+
+### Use Named Output Files (Recommended)
+
+Control the output filenames in your job script with `%j` (auto-inserts the job ID):
+
+```bash
+#SBATCH --output=logs/train-%j.out
+#SBATCH --error=logs/train-%j.err
+```
+
+This produces clean, organized files:
+
+```
+logs/train-482193.out
+logs/train-482193.err
+```
+
+Separating stdout and stderr makes it much easier to spot errors without scrolling through training output.
+
+---
+
+### Fix: Prints Not Appearing Until Job Ends
+
+Python **buffers output by default**, which means `print()` calls may not appear in the log file immediately — they wait until the buffer flushes or the program exits.
+
+**Fix 1** — Use the `-u` flag when calling Python (recommended in job scripts):
+
+```bash
+python -u train.py
+```
+
+**Fix 2** — Force flush on individual print calls:
+
+```python
+print(f"Epoch {epoch} complete — loss: {loss:.4f}", flush=True)
+```
+
+**Fix 3** — Set the environment variable in your job script:
+
+```bash
+export PYTHONUNBUFFERED=1
+python train.py
+```
+
+---
+
+### Log Metrics to a Separate File
+
+For cleaner monitoring, write training metrics to a dedicated log file and watch it independently:
+
+```python
+import logging
+
+logging.basicConfig(
+    filename="training.log",
+    level=logging.INFO,
+    format="%(asctime)s — %(message)s"
+)
+
+logging.info(f"Epoch {epoch} — loss: {loss:.4f} — acc: {acc:.4f}")
+```
+
+Then watch it:
+
+```bash
+tail -f training.log
+```
+
+---
+
+### Monitoring Quick Reference
+
+| Task | Command |
+|---|---|
+| Watch job live | `tail -f slurm-<JOBID>.out` |
+| Watch all output files | `tail -f slurm-*.out` |
+| Read after job ends | `less slurm-<JOBID>.out` |
+| Show last N lines | `tail -n 50 slurm-<JOBID>.out` |
+| Find your job ID | `squeue --me` |
+| List output files | `ls slurm-*.out` |
+| Fix buffered output | `python -u train.py` or `flush=True` |
+
+---
+
+## 6️⃣ Best Directory Structure for Research
 
 ```
 $HOME/
@@ -397,6 +551,8 @@ $HOME/
 │       ├── load_modules.sh
 │       ├── configs/
 │       └── logs/
+│           ├── train-482193.out
+│           └── train-482193.err
 │
 └── scratch -> /scratch/$USER      ← symlink for convenience
 
@@ -417,7 +573,7 @@ $SCRATCH/
 
 ---
 
-## 6️⃣ Useful Commands
+## 7️⃣ Useful Commands
 
 **Environment:**
 
@@ -433,9 +589,20 @@ pip freeze > requirements.txt            # export current packages
 ```bash
 sq                           # list your jobs (short alias)
 squeue -u $USER              # list your jobs
+squeue --me                  # same, shorthand
 scancel JOBID                # cancel a specific job
 scancel -u $USER             # cancel ALL your jobs
 seff JOBID                   # efficiency report after job completes
+scontrol show job JOBID      # full job details
+```
+
+**Log Monitoring:**
+
+```bash
+tail -f slurm-<JOBID>.out    # stream job output live
+tail -n 50 slurm-<JOBID>.out # show last 50 lines
+less slurm-<JOBID>.out       # scrollable view
+ls slurm-*.out               # list all output files
 ```
 
 **Storage:**
@@ -510,8 +677,8 @@ These wheels are compiled specifically for the cluster's CPU/GPU architecture an
 │  ┌──────────────┐     ┌──────────────────────────────┐  │
 │  │  Quick debug │     │  Full training run           │  │
 │  │  salloc ...  │     │  sbatch train_job.sh         │  │
-│  │  python x.py │     │  sq → watch job              │  │
-│  └──────────────┘     │  tail -f logs/job-*.out      │  │
+│  │  python x.py │     │  tail -f slurm-*.out         │  │
+│  └──────────────┘     │  seff JOBID (after)          │  │
 │                       └──────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -688,6 +855,7 @@ If it's gone, restart from Terminal 1 with a new `salloc`. You will get a new co
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
 #SBATCH --output=logs/job-%j.out
+#SBATCH --error=logs/job-%j.err
 
 module purge
 module load CCconfig
@@ -719,10 +887,10 @@ if os.path.exists(checkpoint_path):
     model.load_state_dict(checkpoint["model_state"])
     optimizer.load_state_dict(checkpoint["optimizer_state"])
     start_epoch = checkpoint["epoch"]
-    print(f"Resumed from epoch {start_epoch}")
+    print(f"Resumed from epoch {start_epoch}", flush=True)
 else:
     start_epoch = 0
-    print("Starting from scratch")
+    print("Starting from scratch", flush=True)
 ```
 
 ---
