@@ -9,6 +9,7 @@
 
 - [First Login Checklist](#-first-login-checklist)
 - [Module Reference](#-module-reference)
+- [Required Modules Before Installation](#-required-modules-before-installation)
 - [1. Create a Permanent Virtual Environment](#1️⃣-create-one-permanent-virtual-environment)
 - [2. JupyterHub Kernel Setup](#2️⃣-make-it-usable-in-jupyterhub)
 - [3. Interactive Jobs (salloc)](#3️⃣-use-the-environment-in-interactive-jobs)
@@ -34,10 +35,11 @@ quota -s
 module purge
 
 # 3. Load your standard environment
+module load CCconfig
 module load StdEnv/2023 python/3.11.5
 
 # 4. Activate your persistent virtual environment
-source ~/envs/elec888_env/bin/activate
+source ~/envs/hpc_ml_env/bin/activate
 
 # 5. Verify GPU/CUDA availability (if on a GPU node)
 python -c "import torch; print('CUDA:', torch.cuda.is_available()); print('Device:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
@@ -53,14 +55,22 @@ Alliance clusters use the **Lmod** module system. Common modules for ML workload
 
 | Module | Purpose |
 |---|---|
-| `StdEnv/2023` | Standard software environment (always load first) |
+| `CCconfig` | Compute Canada base configuration (load first) |
+| `gentoo/2023` | Base OS compatibility layer |
+| `StdEnv/2023` | Standard software environment (always load after CCconfig) |
 | `python/3.11.5` | Python interpreter |
 | `python/3.10.13` | Alternative Python version |
+| `gcc/12.3` | GCC compiler suite |
+| `gcccore/.12.3` | GCC core libraries (auto-loaded by most modules) |
 | `cuda/12.2` | CUDA toolkit (loaded automatically with GPU nodes in most cases) |
 | `cudnn/8.9.5.29` | cuDNN for deep learning |
-| `scipy-stack/2023b` | NumPy, SciPy, Matplotlib, Pandas (prebuilt) |
-| `arrow/14.0.1` | Apache Arrow / PyArrow |
+| `scipy-stack/2026a` | NumPy, SciPy, Matplotlib, Pandas (prebuilt) |
 | `ipykernel/2026a` | Prebuilt ipykernel module (alternative to pip install) |
+| `arrow/23.0.1` | Apache Arrow / PyArrow |
+| `opencv/4.13.0` | OpenCV for computer vision |
+| `openmpi/4.1.5` | MPI for multi-node / distributed jobs |
+| `r/4.5.0` | R statistical computing |
+| `java/17.0.6` | Java runtime (required by some tools) |
 | `StdEnv/2020` | Legacy environment (use only if required) |
 
 Check all available modules:
@@ -78,16 +88,120 @@ module load StdEnv/2023 gcc/12.3 cuda/12.2 python/3.11.5
 
 ---
 
+## 🧩 Required Modules Before Installation
+
+Before creating a virtual environment or installing any Python packages, you **must** load the correct set of modules. Loading these ensures the compiler toolchain, optimized linear algebra libraries, communication libraries, and Python interpreter all match what the cluster expects.
+
+### Full Recommended Module Stack
+
+```bash
+module purge
+module load CCconfig
+module load gentoo/2023
+module load StdEnv/2023
+module load gcc/12.3
+module load python/3.11.5
+module load java/17.0.6
+module load scipy-stack/2026a
+module load ipykernel/2026a
+module load openmpi/4.1.5
+module load opencv/4.13.0
+module load arrow/23.0.1
+```
+
+### What Each Module Provides
+
+| Module | Role |
+|---|---|
+| `CCconfig` | Compute Canada base config — always load first |
+| `gentoo/2023` | Base OS layer used by the Alliance software stack |
+| `StdEnv/2023` | Core standard environment — compiler and toolchain defaults |
+| `gcc/12.3` + `gcccore/.12.3` | C/C++/Fortran compilers needed by many packages |
+| `python/3.11.5` | Python interpreter (sets the venv baseline) |
+| `java/17.0.6` | Java runtime, required by tools like Spark or some data pipelines |
+| `flexiblas/3.3.1` + `flexiblascore/.3.3.1` | Flexible BLAS wrapper for optimized linear algebra |
+| `aocl-blas/5.1` + `aocl-lapack/5.1` | AMD-optimized BLAS/LAPACK (used on AMD CPU nodes) |
+| `scipy-stack/2026a` | Prebuilt NumPy, SciPy, Matplotlib, Pandas — avoid reinstalling these |
+| `ipykernel/2026a` | Jupyter kernel support (can use instead of pip installing ipykernel) |
+| `hwloc/2.9.1` | Hardware locality — CPU/memory topology for parallel jobs |
+| `ucx/1.14.1` | Unified Communication X — high-speed networking layer |
+| `libfabric/1.18.0` | Low-level network fabric (InfiniBand, Ethernet) |
+| `pmix/4.2.4` | Process management for MPI jobs |
+| `ucc/1.2.0` | Unified Collective Communication (used with OpenMPI) |
+| `openmpi/4.1.5` | MPI implementation for distributed/multi-node jobs |
+| `opencv/4.13.0` | Computer vision library |
+| `arrow/23.0.1` | Apache Arrow for fast columnar data processing |
+| `r/4.5.0` | R statistical computing environment |
+
+> ⚠️ **You do not need to load all of these every time.** Load only what your project needs. However, always start with `CCconfig`, `StdEnv/2023`, `gcc/12.3`, and `python/3.11.5` as your baseline before creating a virtual environment or installing packages.
+
+### Minimal Baseline (Most ML Projects)
+
+```bash
+module purge
+module load CCconfig
+module load StdEnv/2023
+module load gcc/12.3
+module load python/3.11.5
+module load scipy-stack/2026a
+```
+
+### Extended Stack (Deep Learning + Distributed)
+
+```bash
+module purge
+module load CCconfig
+module load StdEnv/2023
+module load gcc/12.3
+module load python/3.11.5
+module load scipy-stack/2026a
+module load ipykernel/2026a
+module load openmpi/4.1.5
+module load arrow/23.0.1
+module load opencv/4.13.0
+```
+
+Save your module loading commands in a shell script for reuse:
+
+```bash
+# file: load_modules.sh
+#!/bin/bash
+module purge
+module load CCconfig
+module load StdEnv/2023
+module load gcc/12.3
+module load python/3.11.5
+module load scipy-stack/2026a
+module load ipykernel/2026a
+module load openmpi/4.1.5
+module load arrow/23.0.1
+module load opencv/4.13.0
+echo "✅ Modules loaded successfully"
+module list
+```
+
+Source it any time:
+
+```bash
+source load_modules.sh
+```
+
+---
+
 ## 1️⃣ Create ONE Permanent Virtual Environment
 
 Do this **once** after your first login. The environment lives in `~/envs/` permanently.
 
 ```bash
 module purge
-module load StdEnv/2023 python/3.11.5
+module load CCconfig
+module load StdEnv/2023
+module load gcc/12.3
+module load python/3.11.5
+module load scipy-stack/2026a
 
-python -m venv ~/envs/elec888_env
-source ~/envs/elec888_env/bin/activate
+python -m venv --no-download ~/envs/hpc_ml_env
+source ~/envs/hpc_ml_env/bin/activate
 ```
 
 Upgrade pip and install your packages from `requirements.txt`:
@@ -99,6 +213,8 @@ pip install --no-index -r requirements.txt
 
 > ⚠️ **Always use `--no-index`** when possible. This forces pip to use the cluster's pre-compiled wheel cache instead of downloading from PyPI, which is significantly faster and more stable on HPC nodes.
 
+> 💡 The `--no-download` flag when creating the venv prevents pip from downloading anything during venv creation — it uses the system pip instead.
+
 If a package isn't available as a wheel, install from PyPI (requires internet on login nodes):
 
 ```bash
@@ -108,7 +224,7 @@ pip install some-package  # without --no-index
 Your environment now lives permanently at:
 
 ```
-~/envs/elec888_env/
+~/envs/hpc_ml_env/
 ```
 
 ---
@@ -118,21 +234,28 @@ Your environment now lives permanently at:
 Run once to register your environment as a Jupyter kernel:
 
 ```bash
-source ~/envs/elec888_env/bin/activate
+source ~/envs/hpc_ml_env/bin/activate
 pip install ipykernel --no-index
-python -m ipykernel install --user --name elec888_env --display-name "Python (elec888_env)"
+python -m ipykernel install --user --name hpc_ml_env --display-name "Python (hpc_ml_env)"
+```
+
+Alternatively, use the preloaded module instead of pip:
+
+```bash
+module load ipykernel/2026a
+python -m ipykernel install --user --name hpc_ml_env --display-name "Python (hpc_ml_env)"
 ```
 
 When you open JupyterHub, select the kernel named:
 
 ```
-Python (elec888_env)
+Python (hpc_ml_env)
 ```
 
 To remove a kernel later:
 
 ```bash
-jupyter kernelspec remove elec888_env
+jupyter kernelspec remove hpc_ml_env
 ```
 
 ---
@@ -146,15 +269,14 @@ salloc --time=02:00:00 \
        --cpus-per-task=4 \
        --mem=16G \
        --gres=gpu:1 \
-       --account=def-bakhshai
+       --account=def-supervisor
 ```
 
 Once the node is allocated, load your environment:
 
 ```bash
-module purge
-module load StdEnv/2023 python/3.11.5
-source ~/envs/elec888_env/bin/activate
+source load_modules.sh   # or load manually
+source ~/envs/hpc_ml_env/bin/activate
 
 # Verify GPU
 nvidia-smi
@@ -174,8 +296,8 @@ Create a file called `train_job.sh`:
 
 ```bash
 #!/bin/bash
-#SBATCH --account=def-bakhshai
-#SBATCH --job-name=elec888_train
+#SBATCH --account=def-supervisor
+#SBATCH --job-name=ml_train
 #SBATCH --time=08:00:00
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
@@ -183,22 +305,26 @@ Create a file called `train_job.sh`:
 #SBATCH --output=logs/job-%j.out
 #SBATCH --error=logs/job-%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=your.email@queensu.ca
+#SBATCH --mail-user=your.email@university.ca
 
 # ── Environment Setup ──────────────────────────────────────────────
 module purge
-module load StdEnv/2023 python/3.11.5
+module load CCconfig
+module load StdEnv/2023
+module load gcc/12.3
+module load python/3.11.5
+module load scipy-stack/2026a
 
-source ~/envs/elec888_env/bin/activate
+source ~/envs/hpc_ml_env/bin/activate
 
 # ── Verify GPU ─────────────────────────────────────────────────────
 echo "CUDA Available: $(python -c 'import torch; print(torch.cuda.is_available())')"
 nvidia-smi
 
 # ── Run Experiment ─────────────────────────────────────────────────
-cd ~/projects/Survival-Analysis-Probabilistic-ML
+cd ~/projects/my_project
 
-python train_sota_models.py \
+python train.py \
     --epochs 50 \
     --batch_size 64 \
     --lr 1e-4 \
@@ -208,7 +334,7 @@ python train_sota_models.py \
 Create the logs directory first:
 
 ```bash
-mkdir -p ~/projects/Survival-Analysis-Probabilistic-ML/logs
+mkdir -p ~/projects/my_project/logs
 ```
 
 Submit the job:
@@ -232,17 +358,18 @@ scontrol show job JOBID   # full job details
 ```
 $HOME/
 ├── envs/
-│   └── elec888_env/          ← virtual environment (lives here permanently)
+│   └── hpc_ml_env/               ← virtual environment (lives here permanently)
 │
 ├── projects/
-│   └── Survival-Analysis-Probabilistic-ML/
-│       ├── train_sota_models.py
+│   └── my_project/
+│       ├── train.py
 │       ├── requirements.txt
 │       ├── train_job.sh
+│       ├── load_modules.sh
 │       ├── configs/
 │       └── logs/
 │
-└── scratch -> /scratch/$USER  ← symlink for convenience
+└── scratch -> /scratch/$USER      ← symlink for convenience
 
 $SCRATCH/
 ├── datasets/
@@ -266,10 +393,10 @@ $SCRATCH/
 **Environment:**
 
 ```bash
-source ~/envs/elec888_env/bin/activate    # activate environment
-deactivate                                 # deactivate environment
-pip list                                   # list installed packages
-pip freeze > requirements.txt             # export current packages
+source ~/envs/hpc_ml_env/bin/activate    # activate environment
+deactivate                                # deactivate environment
+pip list                                  # list installed packages
+pip freeze > requirements.txt            # export current packages
 ```
 
 **Job Management:**
@@ -343,11 +470,11 @@ These wheels are compiled specifically for the cluster's CPU/GPU architecture an
 └──────────────────────┬──────────────────────────────────┘
                        │  SSH
 ┌──────────────────────▼──────────────────────────────────┐
-│  FIR / NARVAL CLUSTER (login node)                      │
+│  CLUSTER (login node)                                   │
 │  ─────────────────────────────────────────────────────  │
 │  git pull origin main                                   │
-│  module purge && module load StdEnv/2023 python/3.11.5  │
-│  source ~/envs/elec888_env/bin/activate                 │
+│  source load_modules.sh                                 │
+│  source ~/envs/hpc_ml_env/bin/activate                  │
 │                                                         │
 │  ┌──────────────┐     ┌──────────────────────────────┐  │
 │  │  Quick debug │     │  Full training run           │  │
@@ -377,15 +504,9 @@ accelerate
 peft
 
 # Scientific Computing
-numpy
-scipy
+# Note: numpy, scipy, pandas, matplotlib are provided by scipy-stack module
+# Only include here if you need versions not covered by the module
 scikit-learn
-pandas
-
-# Survival Analysis / Probabilistic ML
-lifelines
-scikit-survival
-pymc
 
 # Experiment Tracking
 tensorboard
@@ -395,18 +516,18 @@ shap
 lime
 
 # Utilities
-matplotlib
-seaborn
 tqdm
 pyyaml
 ```
+
+> 💡 Do **not** re-install `numpy`, `scipy`, `pandas`, or `matplotlib` if you loaded `scipy-stack/2026a` — those are already available and optimized. Installing them again via pip can cause version conflicts.
 
 Install on the cluster:
 
 ```bash
 pip install --no-index -r requirements.txt
-# For packages not available as wheels:
-pip install lifelines pymc  # these may need PyPI
+# For packages not available as cluster wheels:
+pip install some-package   # falls back to PyPI
 ```
 
 ---
@@ -440,15 +561,12 @@ ssh -L LOCAL_PORT:COMPUTE_NODE_NAME:REMOTE_PORT cluster_alias
 Request an allocation and note the compute node name. It appears in your shell prompt once the job starts (e.g., `username@fc10512`).
 
 ```bash
-salloc --time=02:00:00 --cpus-per-task=4 --mem=16G --account=def-bakhshai
+salloc --time=02:00:00 --cpus-per-task=4 --mem=16G --account=def-supervisor
 # Your prompt changes to: (username@COMPUTE_NODE ...)
-# Note the compute node name, e.g.: fc10512, gra1234, blg8801, etc.
+# Note the compute node name — e.g.: fc10512, gra1234, blg8801, etc.
 
-module purge
-module load StdEnv/2023 python/3.11.5
-# Alternative: module load StdEnv/2023 ipykernel/2026a
-
-source ~/envs/elec888_env/bin/activate
+source load_modules.sh
+source ~/envs/hpc_ml_env/bin/activate
 
 jupyter lab --no-browser --port=8888
 ```
@@ -535,9 +653,18 @@ If it's gone, restart from Terminal 1 with a new `salloc`. You will get a new co
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=4
 
+module purge
+module load CCconfig
+module load StdEnv/2023
+module load gcc/12.3
+module load python/3.11.5
+module load openmpi/4.1.5
+
+source ~/envs/hpc_ml_env/bin/activate
+
 srun python -m torch.distributed.run \
     --nproc_per_node=4 \
-    train_sota_models.py --distributed
+    train.py --distributed
 ```
 
 ### Resuming from Checkpoints
@@ -545,12 +672,20 @@ srun python -m torch.distributed.run \
 Always save checkpoints to `$SCRATCH` and write your training script to resume:
 
 ```python
-checkpoint_path = os.environ.get("SCRATCH", ".") + "/checkpoints/latest.pt"
+import os
+import torch
+
+checkpoint_path = os.path.join(os.environ.get("SCRATCH", "."), "checkpoints", "latest.pt")
+
 if os.path.exists(checkpoint_path):
     checkpoint = torch.load(checkpoint_path)
     model.load_state_dict(checkpoint["model_state"])
     optimizer.load_state_dict(checkpoint["optimizer_state"])
     start_epoch = checkpoint["epoch"]
+    print(f"Resumed from epoch {start_epoch}")
+else:
+    start_epoch = 0
+    print("Starting from scratch")
 ```
 
 ---
@@ -562,7 +697,8 @@ if os.path.exists(checkpoint_path):
 - [Alliance — Available Python Wheels](https://docs.alliancecan.ca/wiki/Available_Python_wheels)
 - [Alliance — Storage and File Management](https://docs.alliancecan.ca/wiki/Storage_and_file_management)
 - [Alliance — JupyterHub](https://docs.alliancecan.ca/wiki/JupyterHub)
+- [Alliance — Using Modules](https://docs.alliancecan.ca/wiki/Utiliser_des_modules/en)
 
 ---
 
-*Maintained by Arshia Esmail Tehrani — Queen's University ECE (AI)*
+*Maintained for research use — Queen's University ECE (AI)*
