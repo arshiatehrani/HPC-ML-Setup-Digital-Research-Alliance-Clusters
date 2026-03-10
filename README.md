@@ -51,33 +51,40 @@ python -c "import torch; print('CUDA:', torch.cuda.is_available()); print('Devic
 
 ## 📦 Module Reference
 
-Alliance clusters use the **Lmod** module system. Common modules for ML workloads:
+Alliance clusters use the **Lmod** module system. The table below lists all commonly used modules for ML workloads on Alliance clusters.
 
-| Module | Purpose |
-|---|---|
-| `CCconfig` | Compute Canada base configuration (load first) |
-| `gentoo/2023` | Base OS compatibility layer |
-| `StdEnv/2023` | Standard software environment (always load after CCconfig) |
-| `python/3.11.5` | Python interpreter |
-| `python/3.10.13` | Alternative Python version |
-| `gcc/12.3` | GCC compiler suite |
-| `gcccore/.12.3` | GCC core libraries (auto-loaded by most modules) |
-| `cuda/12.2` | CUDA toolkit (loaded automatically with GPU nodes in most cases) |
-| `cudnn/8.9.5.29` | cuDNN for deep learning |
-| `scipy-stack/2026a` | NumPy, SciPy, Matplotlib, Pandas (prebuilt) |
-| `ipykernel/2026a` | Prebuilt ipykernel module (alternative to pip install) |
-| `arrow/23.0.1` | Apache Arrow / PyArrow |
-| `opencv/4.13.0` | OpenCV for computer vision |
-| `openmpi/4.1.5` | MPI for multi-node / distributed jobs |
-| `r/4.5.0` | R statistical computing |
-| `java/17.0.6` | Java runtime (required by some tools) |
-| `StdEnv/2020` | Legacy environment (use only if required) |
+| Module | Category | Purpose |
+|---|---|---|
+| `CCconfig` | Base | Compute Canada base configuration — always load first |
+| `gentoo/2023` | Base | OS compatibility layer for the Alliance software stack |
+| `StdEnv/2023` | Base | Standard software environment — load after CCconfig |
+| `gcccore/.12.3` | Compiler | GCC core libraries (auto-loaded as dependency) |
+| `gcc/12.3` | Compiler | GCC C/C++/Fortran compiler suite |
+| `python/3.11.5` | Language | Python 3.11 interpreter |
+| `java/17.0.6` | Language | Java 17 LTS runtime (specific build) |
+| `java/17` | Language | Java 17 LTS runtime (general alias) |
+| `r/4.5.0` | Language | R statistical computing environment |
+| `flexiblascore/.3.3.1` | Math | FlexiBLAS core (auto-loaded as dependency) |
+| `flexiblas/3.3.1` | Math | Flexible BLAS wrapper for optimized linear algebra |
+| `aocl-blas/5.1` | Math | AMD-optimized BLAS (used on AMD CPU nodes) |
+| `aocl-lapack/5.1` | Math | AMD-optimized LAPACK (used on AMD CPU nodes) |
+| `scipy-stack/2026a` | Science | Prebuilt NumPy, SciPy, Matplotlib, Pandas |
+| `ipykernel/2026a` | Jupyter | Jupyter kernel support (alternative to pip install) |
+| `arrow/23.0.1` | Data | Apache Arrow for fast columnar data processing |
+| `opencv/4.13.0` | Vision | OpenCV computer vision library |
+| `hwloc/2.9.1` | HPC | Hardware locality — CPU/memory topology for parallel jobs |
+| `ucx/1.14.1` | HPC | Unified Communication X — high-speed networking layer |
+| `libfabric/1.18.0` | HPC | Low-level network fabric (InfiniBand, Ethernet) |
+| `pmix/4.2.4` | HPC | Process management interface for MPI jobs |
+| `ucc/1.2.0` | HPC | Unified Collective Communication (used with OpenMPI) |
+| `openmpi/4.1.5` | HPC | MPI for distributed/multi-node jobs |
 
 Check all available modules:
 
 ```bash
-module avail          # list all available modules
-module spider python  # search for a specific module
+module avail               # list all available modules
+module spider python       # search for a specific module
+module spider cuda         # search for CUDA modules
 ```
 
 Load CUDA explicitly for GPU jobs if needed:
@@ -92,22 +99,38 @@ module load StdEnv/2023 gcc/12.3 cuda/12.2 python/3.11.5
 
 Before creating a virtual environment or installing any Python packages, you **must** load the correct set of modules. Loading these ensures the compiler toolchain, optimized linear algebra libraries, communication libraries, and Python interpreter all match what the cluster expects.
 
-### Full Recommended Module Stack
+### Full Module List (All Available)
 
 ```bash
 module purge
 module load CCconfig
 module load gentoo/2023
 module load StdEnv/2023
+module load gcccore/.12.3
 module load gcc/12.3
 module load python/3.11.5
 module load java/17.0.6
+module load java/17
+module load flexiblascore/.3.3.1
+module load flexiblas/3.3.1
+module load aocl-blas/5.1
+module load aocl-lapack/5.1
 module load scipy-stack/2026a
 module load ipykernel/2026a
+module load r/4.5.0
+module load hwloc/2.9.1
+module load ucx/1.14.1
+module load libfabric/1.18.0
+module load pmix/4.2.4
+module load ucc/1.2.0
 module load openmpi/4.1.5
 module load opencv/4.13.0
 module load arrow/23.0.1
 ```
+
+> ⚠️ **You do not need to load all of these every time.** Load only what your project needs. Many lower-level modules (like `gcccore`, `flexiblascore`, `hwloc`, `ucx`, `libfabric`, `pmix`, `ucc`) are auto-loaded as dependencies when you load higher-level modules like `openmpi` or `scipy-stack`. Use the stacks below as your starting point.
+
+---
 
 ### What Each Module Provides
 
@@ -115,25 +138,29 @@ module load arrow/23.0.1
 |---|---|
 | `CCconfig` | Compute Canada base config — always load first |
 | `gentoo/2023` | Base OS layer used by the Alliance software stack |
-| `StdEnv/2023` | Core standard environment — compiler and toolchain defaults |
-| `gcc/12.3` + `gcccore/.12.3` | C/C++/Fortran compilers needed by many packages |
-| `python/3.11.5` | Python interpreter (sets the venv baseline) |
-| `java/17.0.6` | Java runtime, required by tools like Spark or some data pipelines |
-| `flexiblas/3.3.1` + `flexiblascore/.3.3.1` | Flexible BLAS wrapper for optimized linear algebra |
-| `aocl-blas/5.1` + `aocl-lapack/5.1` | AMD-optimized BLAS/LAPACK (used on AMD CPU nodes) |
-| `scipy-stack/2026a` | Prebuilt NumPy, SciPy, Matplotlib, Pandas — avoid reinstalling these |
-| `ipykernel/2026a` | Jupyter kernel support (can use instead of pip installing ipykernel) |
-| `hwloc/2.9.1` | Hardware locality — CPU/memory topology for parallel jobs |
-| `ucx/1.14.1` | Unified Communication X — high-speed networking layer |
-| `libfabric/1.18.0` | Low-level network fabric (InfiniBand, Ethernet) |
-| `pmix/4.2.4` | Process management for MPI jobs |
-| `ucc/1.2.0` | Unified Collective Communication (used with OpenMPI) |
-| `openmpi/4.1.5` | MPI implementation for distributed/multi-node jobs |
-| `opencv/4.13.0` | Computer vision library |
-| `arrow/23.0.1` | Apache Arrow for fast columnar data processing |
-| `r/4.5.0` | R statistical computing environment |
+| `StdEnv/2023` | Core standard environment — sets compiler and toolchain defaults |
+| `gcccore/.12.3` | GCC core libraries, auto-loaded as dependency by most modules |
+| `gcc/12.3` | Full GCC compiler suite — required before building or installing compiled packages |
+| `python/3.11.5` | Python 3.11 interpreter — sets the baseline for your virtual environment |
+| `java/17.0.6` | Specific Java 17 LTS build — needed for Spark, some data pipeline tools |
+| `java/17` | Java 17 general alias — interchangeable with `java/17.0.6` in most cases |
+| `r/4.5.0` | R statistical environment — useful for mixed Python/R workflows |
+| `flexiblascore/.3.3.1` | FlexiBLAS core libraries, auto-loaded as dependency |
+| `flexiblas/3.3.1` | Flexible BLAS wrapper — routes BLAS calls to best available backend |
+| `aocl-blas/5.1` | AMD-optimized BLAS — used automatically on AMD CPU nodes for faster linear algebra |
+| `aocl-lapack/5.1` | AMD-optimized LAPACK — complements `aocl-blas` for decomposition routines |
+| `scipy-stack/2026a` | Prebuilt, cluster-optimized NumPy, SciPy, Matplotlib, Pandas — do not reinstall via pip |
+| `ipykernel/2026a` | Jupyter kernel support — can use instead of `pip install ipykernel` |
+| `hwloc/2.9.1` | Hardware locality library — detects CPU/memory topology for parallel scheduling |
+| `ucx/1.14.1` | Unified Communication X — high-performance networking layer (InfiniBand, RDMA) |
+| `libfabric/1.18.0` | Low-level network fabric abstraction for InfiniBand and Ethernet |
+| `pmix/4.2.4` | Process Management Interface — coordinates process startup in MPI jobs |
+| `ucc/1.2.0` | Unified Collective Communication — optimizes collective MPI operations |
+| `openmpi/4.1.5` | Full MPI implementation — required for distributed multi-node training |
+| `opencv/4.13.0` | Computer vision library — image I/O, transforms, video processing |
+| `arrow/23.0.1` | Apache Arrow — fast columnar data processing and Parquet file support |
 
-> ⚠️ **You do not need to load all of these every time.** Load only what your project needs. However, always start with `CCconfig`, `StdEnv/2023`, `gcc/12.3`, and `python/3.11.5` as your baseline before creating a virtual environment or installing packages.
+---
 
 ### Minimal Baseline (Most ML Projects)
 
@@ -146,7 +173,7 @@ module load python/3.11.5
 module load scipy-stack/2026a
 ```
 
-### Extended Stack (Deep Learning + Distributed)
+### Extended Stack (Deep Learning + Distributed + Vision)
 
 ```bash
 module purge
@@ -161,7 +188,9 @@ module load arrow/23.0.1
 module load opencv/4.13.0
 ```
 
-Save your module loading commands in a shell script for reuse:
+### Save Your Module Stack as a Script
+
+Save your module loading commands in a shell script for easy reuse across sessions and job scripts:
 
 ```bash
 # file: load_modules.sh
@@ -215,10 +244,10 @@ pip install --no-index -r requirements.txt
 
 > 💡 The `--no-download` flag when creating the venv prevents pip from downloading anything during venv creation — it uses the system pip instead.
 
-If a package isn't available as a wheel, install from PyPI (requires internet on login nodes):
+If a package isn't available as a cluster wheel, install from PyPI (requires internet on login nodes):
 
 ```bash
-pip install some-package  # without --no-index
+pip install some-package   # without --no-index, falls back to PyPI
 ```
 
 Your environment now lives permanently at:
@@ -414,7 +443,7 @@ seff JOBID                   # efficiency report after job completes
 ```bash
 quota -s                     # check storage usage
 diskusage_report             # detailed Alliance quota report
-ls -lh ~/scratch/checkpoints # check checkpoint sizes
+ls -lh $SCRATCH/checkpoints  # check checkpoint sizes
 ```
 
 **GPU:**
@@ -432,6 +461,8 @@ module list                  # currently loaded modules
 module purge                 # unload all modules
 module avail python          # available Python versions
 module spider cuda           # search for CUDA modules
+module save my_stack         # save current module set
+module restore my_stack      # reload saved module set
 ```
 
 ---
@@ -504,8 +535,8 @@ accelerate
 peft
 
 # Scientific Computing
-# Note: numpy, scipy, pandas, matplotlib are provided by scipy-stack module
-# Only include here if you need versions not covered by the module
+# NOTE: numpy, scipy, pandas, matplotlib are provided by scipy-stack/2026a
+# Do NOT reinstall them here — it causes version conflicts with the module
 scikit-learn
 
 # Experiment Tracking
@@ -520,7 +551,7 @@ tqdm
 pyyaml
 ```
 
-> 💡 Do **not** re-install `numpy`, `scipy`, `pandas`, or `matplotlib` if you loaded `scipy-stack/2026a` — those are already available and optimized. Installing them again via pip can cause version conflicts.
+> 💡 Do **not** re-install `numpy`, `scipy`, `pandas`, or `matplotlib` if you loaded `scipy-stack/2026a` — those are already available and cluster-optimized. Reinstalling via pip can silently break things.
 
 Install on the cluster:
 
@@ -583,7 +614,7 @@ Copy the full token URL — you will need it in your browser.
 
 **Terminal 2 — On your local machine:**
 
-Using the compute node name from your cluster prompt (e.g., `fc10512`), open the SSH tunnel:
+Using the compute node name from your cluster prompt, open the SSH tunnel:
 
 ```bash
 ssh -L 8888:COMPUTE_NODE_NAME:8888 username@cluster.alliancecan.ca
@@ -649,9 +680,14 @@ If it's gone, restart from Terminal 1 with a new `salloc`. You will get a new co
 ### Multi-GPU Training with PyTorch + Slurm
 
 ```bash
+#!/bin/bash
+#SBATCH --account=def-supervisor
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=4
+#SBATCH --mem=64G
+#SBATCH --time=12:00:00
+#SBATCH --output=logs/job-%j.out
 
 module purge
 module load CCconfig
@@ -659,6 +695,7 @@ module load StdEnv/2023
 module load gcc/12.3
 module load python/3.11.5
 module load openmpi/4.1.5
+module load scipy-stack/2026a
 
 source ~/envs/hpc_ml_env/bin/activate
 
