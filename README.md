@@ -15,10 +15,11 @@
 - [3. Interactive Jobs (salloc)](#3️⃣-use-the-environment-in-interactive-jobs)
 - [4. Batch Jobs (sbatch)](#4️⃣-use-the-environment-in-batch-jobs-best-practice)
 - [5. Monitoring Job Output & Training Logs](#5️⃣-monitoring-job-output--training-logs)
-- [6. Directory Structure](#6️⃣-best-directory-structure-for-research)
-- [7. Useful Commands](#7️⃣-useful-commands)
-- [8. Pre-built Wheels Trick](#️-one-extremely-useful-trick-for-alliance-clusters)
-- [9. Typical Workflow](#-your-typical-workflow)
+- [6. Building a Cluster-Optimized requirements_cc.txt](#6️⃣-building-a-cluster-optimized-requirements_cctxt)
+- [7. Directory Structure](#7️⃣-best-directory-structure-for-research)
+- [8. Useful Commands](#8️⃣-useful-commands)
+- [9. Pre-built Wheels Trick](#️-one-extremely-useful-trick-for-alliance-clusters)
+- [10. Typical Workflow](#-your-typical-workflow)
 - [Requirements Template](#-requirements-template)
 - [Advanced Tips](#-advanced-tips)
 
@@ -361,7 +362,7 @@ python -u train.py \
     --output_dir $SCRATCH/checkpoints/run_$(date +%Y%m%d_%H%M%S)
 ```
 
-> 💡 Note the `-u` flag on `python -u train.py` — this disables output buffering so your `print()` statements appear in the log file immediately as they execute rather than waiting for the buffer to flush.
+> 💡 The `-u` flag on `python -u train.py` disables output buffering so `print()` statements appear in the log file immediately rather than waiting for the buffer to flush.
 
 Create the logs directory first:
 
@@ -475,7 +476,7 @@ Separating stdout and stderr makes it much easier to spot errors without scrolli
 
 ### Fix: Prints Not Appearing Until Job Ends
 
-Python **buffers output by default**, which means `print()` calls may not appear in the log file immediately — they wait until the buffer flushes or the program exits.
+Python **buffers output by default**, meaning `print()` calls may not appear in the log file immediately — they wait until the buffer flushes or the program exits.
 
 **Fix 1** — Use the `-u` flag when calling Python (recommended in job scripts):
 
@@ -536,17 +537,212 @@ tail -f training.log
 
 ---
 
-## 6️⃣ Best Directory Structure for Research
+## 6️⃣ Building a Cluster-Optimized `requirements_cc.txt`
+
+The Alliance wheelhouse provides pre-compiled, cluster-optimized builds of most popular packages (tagged `+computecanada`). Using them makes your installs faster, more stable, and free of network dependency inside job nodes. This section shows you how to convert your standard `requirements.txt` into one that is fully backed by the Alliance wheelhouse — with a safe fallback for packages that aren't available there.
+
+> 💡 Do all steps in this section **on the login node**, which has internet access. Compute nodes do not.
+
+---
+
+### The Big Picture
+
+```
+requirements.txt          (your original, PyPI-style)
+        │
+        ▼
+  avail_wheels check
+        │
+   ┌────┴────────────────────┐
+   │                         │
+✅ Available in              ❌ NOT in Alliance
+   Alliance wheelhouse           wheelhouse
+   │                         │
+   pip install --no-index    uv pip download → $HOME/wheelhouse/
+   │                         │
+   └────────────┬────────────┘
+                │
+          pip freeze
+                │
+                ▼
+        requirements_cc.txt   (pinned, cluster-ready)
+                │
+                ▼
+         used in job scripts
+```
+
+---
+
+### Step 1 — Identify What's Available
+
+Use `avail_wheels` to check your entire `requirements.txt` against the Alliance wheelhouse at once:
+
+```bash
+module load python/3.11.5
+avail_wheels -r requirements.txt
+```
+
+To see **only the packages that are missing** (not available as `+computecanada` wheels):
+
+```bash
+avail_wheels -r requirements.txt --not-available
+```
+
+This tells you exactly which packages need the custom wheelhouse fallback — no guessing required.
+
+---
+
+### Step 2 — Build a Temporary Environment from the Alliance Wheelhouse
+
+Create a short-lived temp environment and install everything that **is** available:
+
+```bash
+module load python/3.11.5
+
+ENVDIR=/tmp/$RANDOM
+virtualenv --no-download "$ENVDIR"
+source "$ENVDIR/bin/activate"
+pip install --no-index --upgrade pip
+
+# Temporarily remove or comment out packages NOT in the wheelhouse
+# then run:
+pip install --no-index -r requirements.txt
+```
+
+> `--no-index` forces pip to look **only** at the Alliance wheelhouse (`/cvmfs/...`). Any package not found there will raise an error — this is expected and useful. It tells you exactly which packages need to be handled in the next step.
+
+---
+
+### Step 3 — Handle Packages Not in the Alliance Wheelhouse
+
+For each package that errored in Step 2, download it from PyPI into your own local wheelhouse:
+
+```bash
+mkdir -p $HOME/wheelhouse/my_project
+
+# Download the missing package (with uv for speed)
+uv pip download "somepackage==X.Y.Z" -d $HOME/wheelhouse/my_project
+```
+
+Then install it into the same temp environment:
+
+```bash
+pip install --find-links=$HOME/wheelhouse/my_project --no-index "somepackage==X.Y.Z"
+```
+
+#### Handling Dependency Conflicts (`--no-deps`)
+
+Some packages declare version constraints on their dependencies that conflict with what the Alliance wheelhouse provides (e.g., requiring `torch<2.0` when the cluster only has `torch 2.x`). In this case, install the package **without its dependency tree**:
+
+```bash
+pip install --find-links=$HOME/wheelhouse/my_project --no-index somepackage --no-deps
+```
+
+`--no-deps` installs only the package itself, skipping dependency resolution entirely. Your environment already has the correct cluster-optimized versions of common libraries like `torch`, so this is safe in practice. The package may emit a runtime warning about version mismatches, but it will usually function correctly.
+
+---
+
+### Step 4 — Freeze Into `requirements_cc.txt`
+
+Once your temp environment has everything installed — both Alliance wheels and custom packages — freeze it:
+
+```bash
+pip freeze --local > requirements_cc.txt
+deactivate
+rm -rf "$ENVDIR"
+```
+
+Your `requirements_cc.txt` will now contain a mix of pinned entries:
+
+```text
+numpy==2.4.2+computecanada        # ✅ from Alliance wheelhouse
+pandas==3.0.0+computecanada       # ✅ from Alliance wheelhouse
+scikit-learn==1.5.0+computecanada # ✅ from Alliance wheelhouse
+somepackage==X.Y.Z                # 📦 from your custom wheelhouse
+```
+
+Commit this file to your project repository alongside your original `requirements.txt`.
+
+---
+
+### Step 5 — Use `requirements_cc.txt` in Your Job Script
+
+Your job script can now build a fresh environment quickly on the compute node, entirely from local disk:
+
+```bash
+#!/bin/bash
+#SBATCH --account=def-supervisor
+#SBATCH --job-name=ml_train
+#SBATCH --time=08:00:00
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --gres=gpu:1
+#SBATCH --output=logs/job-%j.out
+#SBATCH --error=logs/job-%j.err
+
+module purge
+module load CCconfig
+module load StdEnv/2023
+module load gcc/12.3
+module load python/3.11.5
+module load scipy-stack/2026a
+
+# ── Build fresh env on fast local node storage ─────────────────────
+VENV_DIR="$SLURM_TMPDIR/job_env"
+virtualenv --no-download "$VENV_DIR"
+source "$VENV_DIR/bin/activate"
+pip install --no-index --upgrade pip
+
+# Install Alliance-available packages (fast, no network, optimized)
+pip install --no-index -r requirements_cc.txt
+
+# Install any remaining custom packages from your local wheelhouse
+pip install --find-links=$HOME/wheelhouse/my_project --no-index -r requirements_custom.txt
+
+# ── Run Experiment ─────────────────────────────────────────────────
+cd ~/projects/my_project
+python -u train.py \
+    --epochs 50 \
+    --batch_size 64 \
+    --lr 1e-4 \
+    --output_dir $SCRATCH/checkpoints/run_$(date +%Y%m%d_%H%M%S)
+```
+
+> 💡 `$SLURM_TMPDIR` is a fast, local SSD scratch directory allocated per job on the compute node. Building the venv there makes installs and imports significantly faster than using `$HOME` or `$SCRATCH`.
+
+---
+
+### Workflow Summary
+
+| Step | Location | Command |
+|---|---|---|
+| Check availability | Login node | `avail_wheels -r requirements.txt --not-available` |
+| Create temp env | Login node | `virtualenv --no-download /tmp/$RANDOM` |
+| Install Alliance packages | Login node | `pip install --no-index -r requirements.txt` |
+| Download missing packages | Login node | `uv pip download pkg -d $HOME/wheelhouse/` |
+| Install missing packages | Login node | `pip install --find-links=... --no-index pkg` |
+| Handle dep conflicts | Login node | `pip install ... --no-deps pkg` |
+| Freeze | Login node | `pip freeze --local > requirements_cc.txt` |
+| Build env in job | Compute node | `pip install --no-index -r requirements_cc.txt` |
+
+---
+
+## 7️⃣ Best Directory Structure for Research
 
 ```
 $HOME/
 ├── envs/
 │   └── hpc_ml_env/               ← virtual environment (lives here permanently)
 │
+├── wheelhouse/
+│   └── my_project/               ← custom wheels for packages not in Alliance wheelhouse
+│
 ├── projects/
 │   └── my_project/
 │       ├── train.py
-│       ├── requirements.txt
+│       ├── requirements.txt          ← original PyPI-style requirements
+│       ├── requirements_cc.txt       ← cluster-optimized, pinned requirements
+│       ├── requirements_custom.txt   ← packages sourced from custom wheelhouse only
 │       ├── train_job.sh
 │       ├── load_modules.sh
 │       ├── configs/
@@ -565,15 +761,16 @@ $SCRATCH/
 
 | Storage | Path | Purpose | Quota |
 |---|---|---|---|
-| Home | `$HOME` | Code, environments, scripts | ~50 GB |
+| Home | `$HOME` | Code, environments, scripts, wheelhouse | ~50 GB |
 | Project | `$PROJECT` | Shared data, long-term results | ~1 TB |
 | Scratch | `$SCRATCH` | Large datasets, checkpoints (purged after 60 days) | ~20 TB |
+| SLURM_TMPDIR | `$SLURM_TMPDIR` | Fast per-job local SSD — build venvs here | Varies |
 
 > ⚠️ **Never store large datasets in `$HOME`.** Always use `$SCRATCH` for datasets and model checkpoints.
 
 ---
 
-## 7️⃣ Useful Commands
+## 8️⃣ Useful Commands
 
 **Environment:**
 
@@ -582,6 +779,15 @@ source ~/envs/hpc_ml_env/bin/activate    # activate environment
 deactivate                                # deactivate environment
 pip list                                  # list installed packages
 pip freeze > requirements.txt            # export current packages
+```
+
+**Wheels & Packages:**
+
+```bash
+avail_wheels torch                        # check if a package has a +computecanada wheel
+avail_wheels -r requirements.txt          # check your whole requirements file
+avail_wheels -r requirements.txt --not-available   # show only missing packages
+uv pip download "pkg==X.Y" -d $HOME/wheelhouse/my_project  # download from PyPI
 ```
 
 **Job Management:**
